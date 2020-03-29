@@ -62,8 +62,8 @@ class CovidUK:
         dtype = dtype_util.common_dtype([M_tt, M_hh, W, C, N], dtype_hint=np.float64)
         self.n_ages = M_tt.shape[0]
         self.n_lads = C.shape[0]
-        self.M_tt = tf.convert_to_tensor(M_tt, dtype=tf.float64)
-        self.M_hh = tf.convert_to_tensor(M_hh, dtype=tf.float64)
+        self.M_tt = tf.convert_to_tensor(M_tt, dtype=dtype)
+        self.M_hh = tf.convert_to_tensor(M_hh, dtype=dtype)
 
         # Create one linear operator comprising both the term and holiday
         # matrices. This is nice because
@@ -161,7 +161,7 @@ class CovidUKODE(CovidUK):
     def eval_R0(self, param, tol=1e-8):
         ngm = self.ngm(param)
         # Dominant eigen value by power iteration
-        dom_eigen_vec, i = power_iteration(ngm, tol=tf.cast(tol, tf.float64))
+        dom_eigen_vec, i = power_iteration(ngm, tol=tol)
         R0 = rayleigh_quotient(ngm, dom_eigen_vec)
         return tf.squeeze(R0), i
 
@@ -229,8 +229,9 @@ class CovidUKStochastic(CovidUK):
         :param state_init: the initial state
         :returns: a tuple of times and simulated states.
         """
-        param = {k: tf.constant(v, dtype=tf.float64) for k, v in param.items()}
+        dtype = state_init.dtype
+        param = {k: tf.constant(v, dtype=dtype) for k, v in param.items()}
         hazard = self.make_h(param)
-        t, sim = chain_binomial_simulate(hazard, state_init, np.float64(0.),
-                                         np.float64(self.times.shape[0]), self.time_step)
+        t, sim = chain_binomial_simulate(
+            hazard, state_init, 0., self.times.shape[0], self.time_step)
         return t, sim
