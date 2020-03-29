@@ -105,8 +105,8 @@ class CovidUK:
         else:
             I = init_matrix.flatten()
         S = self.N - I
-        E = tf.zeros(self.N.shape, dtype=np.float64)
-        R = tf.zeros(self.N.shape, dtype=np.float64)
+        E = tf.zeros(self.N.shape, dtype=init_matrix.dtype)
+        R = tf.zeros(self.N.shape, dtype=init_matrix.dtype)
         return tf.stack([S, E, I, R], axis=-1)
 
 
