@@ -100,17 +100,14 @@ class CovidUK:
 
     def create_initial_state(self, init_matrix=None):
         if init_matrix is None:
-            I = np.zeros(self.N.shape, dtype=np.float64)
+            I = tf.zeros(self.N.shape, dtype=np.float64)
             I[149*17+10] = 30.  # Middle-aged in Surrey
         else:
-            np.testing.assert_array_equal(init_matrix.shape, [self.n_lads, self.n_ages],
-                                          err_msg=f"init_matrix does not have shape [<num lads>,<num ages>] \
-                                          ({self.n_lads},{self.n_ages})")
             I = init_matrix.flatten()
         S = self.N - I
-        E = np.zeros(self.N.shape, dtype=np.float64)
-        R = np.zeros(self.N.shape, dtype=np.float64)
-        return np.stack([S, E, I, R], axis=-1)
+        E = tf.zeros(self.N.shape, dtype=np.float64)
+        R = tf.zeros(self.N.shape, dtype=np.float64)
+        return tf.stack([S, E, I, R], axis=-1)
 
 
 class CovidUKODE(CovidUK):
