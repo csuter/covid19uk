@@ -103,7 +103,7 @@ class CovidUK:
             I = tf.zeros(self.N.shape, dtype=np.float64)
             I[149*17+10] = 30.  # Middle-aged in Surrey
         else:
-            I = init_matrix.flatten()
+            I = tf.reshape(init_matrix, [-1])
         S = self.N - I
         E = tf.zeros(self.N.shape, dtype=init_matrix.dtype)
         R = tf.zeros(self.N.shape, dtype=init_matrix.dtype)
