@@ -1,3 +1,4 @@
+import os
 import optparse
 import time
 
@@ -174,42 +175,69 @@ if __name__ == '__main__':
     C = C.astype(DTYPE)
     N = N.astype(DTYPE)
 
+    def create_initial_state(N, init_matrix=None):
+        if init_matrix is None:
+            I = tf.zeros(N.shape, dtype=np.float64)
+            I[149*17+10] = 30.  # Middle-aged in Surrey
+        else:
+            I = tf.reshape(init_matrix, [-1])
+        S = N - I
+        E = tf.zeros(N.shape, dtype=init_matrix.dtype)
+        R = tf.zeros(N.shape, dtype=init_matrix.dtype)
+        return tf.stack([S, E, I, R], axis=-1)
+
+    time_step = 1.
     model = CovidUKStochastic(M_tt=M_tt,
                               M_hh=M_hh,
                               C=C,
                               N=N,
                               W=W,
-                              date_range=settings['inference_period'],
                               holidays=settings['holiday'],
-                              time_step=1.)
+                              time_step=time_step)
 
     seeding = seed_areas(N, n_names)  # Seed 40-44 age group, 30 seeds by popn size
-    state_init = model.create_initial_state(init_matrix=seeding)
+    state_init = create_initial_state(N, init_matrix=seeding)
 
+    date_range=settings['inference_period']
+    times = np.arange(date_range[0],
+                      date_range[1],
+                      np.timedelta64(int(time_step), 'D')).astype(np.int32)
+    print('num time steps:', times.shape[0])
 
     start = time.perf_counter()
-    t, sim = model.simulate(param, state_init)
+    t, sim = model.simulate(param, state_init, times)
     end = time.perf_counter()
     print(f'Run 1 Complete in {end - start} seconds')
 
+    os.environ['TF_PROFILER_HOST_TRACER_LEVEL'] = '3'  # detailed host traces
+    num_reps = 1
     start = time.perf_counter()
-    for i in range(10):
-        t, sim = model.simulate(param, state_init)
+    with tf.profiler.experimental.Profile('logdir'):
+      for i in range(num_reps):
+          t, sim = model.simulate(param, state_init, times)
     end = time.perf_counter()
-    print(f'Run 2 Complete in {(end - start)/10.} seconds')
+    print(f'Run 2 Complete in {(end - start)/num_reps} seconds')
+
+    fig, ax = plt.subplots(nrows=4, ncols=1, figsize=(15, 30))
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    for i in range(4):
+      ax[i].plot(sim[:, :, i], color=colors[i], alpha=.05)
+    plt.savefig('/var/www/html/covid/stoch.png')
 
     # Plotting functions
-    fig_attack = plt.figure()
-    fig_uk = plt.figure()
-
-    plot_age_attack_rate(fig_attack.gca(), sim, N, "Attack Rate")
-    fig_attack.suptitle("Attack Rate")
-    plot_infec_curve(fig_uk.gca(), sim.numpy(), "Infections")
-    fig_uk.suptitle("UK Infections")
-
-    fig_attack.autofmt_xdate()
-    fig_uk.autofmt_xdate()
-    fig_attack.gca().grid(True)
-    fig_uk.gca().grid(True)
-    plt.show()
-
+#    fig_attack = plt.figure()
+#    fig_uk = plt.figure()
+#
+#    plot_age_attack_rate(fig_attack.gca(), sim, N, "Attack Rate")
+#    fig_attack.suptitle("Attack Rate")
+#    plt.savefig('/var/www/html/covid/stoch1.png')
+#
+#    plot_infec_curve(fig_uk.gca(), sim.numpy(), "Infections")
+#    fig_uk.suptitle("UK Infections")
+#
+#    fig_attack.autofmt_xdate()
+#    fig_uk.autofmt_xdate()
+#    fig_attack.gca().grid(True)
+#    fig_uk.gca().grid(True)
+#    plt.savefig('/var/www/html/covid/stoch2.png')
+#    #plt.show()

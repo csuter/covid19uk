@@ -45,7 +45,6 @@ class CovidUK:
                  W: np.float64,
                  C: np.float64,
                  N: np.float64,
-                 date_range: list,
                  holidays: list,
                  time_step: np.int64):
         """Represents a CovidUK ODE model
@@ -53,7 +52,6 @@ class CovidUK:
         :param K_tt: a MxM matrix of age group mixing in term time
         :param K_hh: a MxM matrix of age group mixing in holiday time
         :param W: Commuting volume
-        :param date_range: a time range [start, end)
         :param holidays: a list of length-2 tuples containing dates of holidays
         :param C: a n_ladsxn_lads matrix of inter-LAD commuting
         :param N: a vector of population sizes in each LAD
@@ -91,12 +89,8 @@ class CovidUK:
         N_sum = N_sum[:, None] * tf.ones([1, self.n_ages], dtype=dtype)
         self.N_sum = tf.reshape(N_sum, [-1])
 
+        self.holidays = np.array(holidays, dtype=np.datetime64).astype(np.int32)
         self.time_step = time_step
-        self.times = np.arange(date_range[0], date_range[1], np.timedelta64(int(time_step), 'D'))
-
-        self.m_select = np.int64((self.times >= holidays[0]) &
-                                 (self.times < holidays[1]))
-        self.max_t = self.m_select.shape[0] - 1
 
     def create_initial_state(self, init_matrix=None):
         if init_matrix is None:
@@ -117,7 +111,7 @@ class CovidUKODE(CovidUK):
         self.solver = tode.DormandPrince()
 
 
-    def make_h(self, param):
+    def make_h(self, param, m_select, max_t):
 
         def h_fn(t, state):
 
@@ -125,8 +119,8 @@ class CovidUKODE(CovidUK):
             # Integrator may produce time values outside the range desired, so
             # we clip, implicitly assuming the outside dates have the same
             # holiday status as their nearest neighbors in the desired range.
-            t_idx = tf.clip_by_value(tf.cast(t, tf.int64), 0, self.max_t)
-            m_switch = tf.gather(self.m_select, t_idx)
+            t_idx = tf.clip_by_value(tf.cast(t, tf.int64), 0, max_t)
+            m_switch = tf.gather(m_select, t_idx)
             commute_volume = tf.pow(tf.gather(self.W, t_idx), param['omega'])
 
             infec_rate = param['beta1'] * (
@@ -143,9 +137,13 @@ class CovidUKODE(CovidUK):
 
         return h_fn
 
-    def simulate(self, param, state_init, solver_state=None):
-        h = self.make_h(param)
-        t = np.arange(self.times.shape[0])
+    def simulate(self, param, state_init, times, solver_state=None):
+
+        m_select = np.int64((times >= self.holidays[0]) & (times < self.holidays[1]))
+        max_t = times.shape[0] - 1
+
+        h = self.make_h(param, m_select, max_t)
+        t = np.arange(times.shape[0])
         results = self.solver.solve(ode_fn=h, initial_time=t[0], initial_state=state_init,
                                     solution_times=t, previous_solver_internal_state=solver_state)
         return results.times, results.states, results.solver_internal_state
@@ -180,7 +178,7 @@ class CovidUKStochastic(CovidUK):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def make_h(self, param):
+    def make_h(self, param, m_select, max_t):
         """Constructs a function that takes `state` and outputs a
         transition rate matrix (with 0 diagonal).
         """
@@ -193,8 +191,8 @@ class CovidUKStochastic(CovidUK):
               contiguously in memory for fast calculation below.
             :return a tensor of shape [ns, ns, nc] containing transition matric for each i=0,...,(c-1)
             """
-            t_idx = tf.clip_by_value(tf.cast(t, tf.int64), 0, self.max_t)
-            m_switch = tf.gather(self.m_select, t_idx)
+            t_idx = tf.clip_by_value(tf.cast(t, tf.int64), 0, max_t)
+            m_switch = tf.gather(m_select, t_idx)
             commute_volume = tf.pow(tf.gather(self.W, t_idx), param['omega'])
 
             infec_rate = param['beta1'] * (
@@ -221,17 +219,26 @@ class CovidUKStochastic(CovidUK):
             return rate_matrix
         return h
 
+
     @tf.function(autograph=False, experimental_compile=True)
-    def simulate(self, param, state_init):
+    def simulate(self, param, state_init, times):
         """Runs a simulation from the epidemic model
 
         :param param: a dictionary of model parameters
         :param state_init: the initial state
         :returns: a tuple of times and simulated states.
         """
+
         dtype = state_init.dtype
+        m_select = tf.cast(
+            (times >= self.holidays[0]) & (times < self.holidays[1]),
+            dtype=np.int32)
+        max_t = times.shape[0] - 1
+
         param = {k: tf.constant(v, dtype=dtype) for k, v in param.items()}
-        hazard = self.make_h(param)
+        hazard = self.make_h(param, m_select, max_t)
         t, sim = chain_binomial_simulate(
-            hazard, state_init, 0., self.times.shape[0], self.time_step)
+            hazard, state_init, 0., times.shape[0], self.time_step)
         return t, sim
+
+
