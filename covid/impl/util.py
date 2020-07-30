@@ -7,7 +7,7 @@ from tensorflow_probability.python.mcmc.internal import util as mcmc_util
 
 def which(predicate):
     """Returns the indices of True elements of predicate"""
-    with tf.name_scope('which'):
+    with tf.name_scope("which"):
         x = tf.cast(predicate, dtype=tf.int32)
         index_range = tf.range(x.shape[0])
         indices = tf.cumsum(x) * x
@@ -22,8 +22,7 @@ def _gen_index(state_shape, trm_coords):
     """
     trm_coords = tf.convert_to_tensor(trm_coords)
 
-    i_shp = state_shape[:-1] + [trm_coords.shape[0]] + \
-            [len(state_shape) + 1]
+    i_shp = state_shape[:-1] + [trm_coords.shape[0]] + [len(state_shape) + 1]
 
     b_idx = np.array(list(np.ndindex(*i_shp[:-1])))[:, :-1]
     m_idx = tf.tile(trm_coords, [tf.reduce_prod(i_shp[:-2]), 1])
@@ -44,9 +43,24 @@ def make_transition_matrix(rates, rate_coords, state_shape):
     if mcmc_util.is_list_like(rates):
         rates = tf.stack(rates, axis=-1)
     output_shape = state_shape + [state_shape[-1]]
-    rate_tensor = tf.scatter_nd(indices=indices,
-                                updates=rates,
-                                shape=output_shape)
+    rate_tensor = tf.scatter_nd(
+        indices=indices, updates=rates, shape=output_shape, name="build_markov_matrix"
+    )
     return rate_tensor
 
 
+def compute_state(initial_state, events, stoichiometry):
+    """Computes a state tensor from initial state and event tensor
+
+    :param initial_state: a tensor of shape [M, S]
+    :param events: a tensor of shape [M, T, X]
+    :param stoichiometry: a stoichiometry matrix of shape [X, S] describing
+                          how transitions update the state.
+    :return: a tensor of shape [M, T, S] describing the state of the
+             system for each batch M at time T.
+    """
+    increments = tf.tensordot(events, stoichiometry, axes=[[-1], [-2]])  # mtx,xs->mts
+    cum_increments = tf.cumsum(increments, axis=-2, exclusive=True)
+    state = cum_increments + tf.expand_dims(initial_state, axis=-2)
+
+    return state
